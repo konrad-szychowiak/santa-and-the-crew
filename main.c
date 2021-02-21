@@ -3,12 +3,15 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define COUNT_REN 9
-#define COUNT_ELF 10
+// total count of santa's crew
+#define REN_TOTAL 9
+#define ELF_TOTAL 10
 
-#define WAIT_REN_MIN 9
-#define WAIT_ELF_MIN 3
+// minimal numbers that will make santa wake up
+#define REN_WAIT_MIN 9
+#define ELF_WAIT_MIN 3
 
+// randomised sleep generation boundaries
 #define WAIT_TIME_MIN 1
 #define WAIT_TIME_MAX 5
 
@@ -70,7 +73,7 @@ _Noreturn void *santa(void *arg) {
 
         // attend to the reindeer first
         // even if they are not the original wake-up-ers
-        if (waiting_reindeer == WAIT_REN_MIN) {
+        if (waiting_reindeer == REN_WAIT_MIN) {
             printf("< Obsługa reniferów\n");
             waiting_reindeer = 0;
             // let the attended reindeer scatter
@@ -79,7 +82,7 @@ _Noreturn void *santa(void *arg) {
         }
 
         // attend to the elves
-        if (waiting_elves >= WAIT_ELF_MIN) {
+        if (waiting_elves >= ELF_WAIT_MIN) {
             // prevent more elves from joining the waiting crew
             // they will have to wait fot a new group to assemble before being served by the santa
             lock(access_elves);
@@ -108,7 +111,7 @@ _Noreturn void *reindeer(const int *id) {
 
         // if this reindeer is the last one required to wake up santa it will wake him up,
         // but wait with all the others to be released by santa nonetheless
-        if (waiting_reindeer == WAIT_REN_MIN) {
+        if (waiting_reindeer == REN_WAIT_MIN) {
             signal(&sleep_control_santa);
             unlock(sleep_access_santa);
             printf("!\t[%3d] waking up santa\n", *id);
@@ -125,7 +128,7 @@ _Noreturn void *reindeer(const int *id) {
 
 /**
  * Elves work until they stumble on a problem requiring santa's attention.
- * if they do, they gather in their own waiting room till at least WAIT_ELF_MIN of them are there.
+ * if they do, they gather in their own waiting room till at least ELF_WAIT_MIN of them are there.
  * If an elf enters the waiting room and notices that there is enough of them (including the elf)
  * to wake up santa, he will do it.
  * Thus, it is possible that there will be more elves waiting than the minimal number.
@@ -138,7 +141,7 @@ _Noreturn void *elf(const int *id) {
         waiting_elves++;
         printf("Waiting elves: %u\n", waiting_elves);
 
-        if (waiting_elves >= WAIT_ELF_MIN) {
+        if (waiting_elves >= ELF_WAIT_MIN) {
             signal(&sleep_control_santa);
             unlock(sleep_access_santa);
             printf("!\t%d\twaking santa\n", *id);
@@ -157,26 +160,26 @@ int main(void) {
 
     // initialising required threads
     Thread snt;
-    Thread elves[COUNT_ELF];
-    Thread reindeer[COUNT_REN];
+    Thread elves[ELF_TOTAL];
+    Thread reindeer[REN_TOTAL];
 
     // creating identifiers for the reindeer
-    int ren_ids[COUNT_REN];
-    for (int r = 0; r < COUNT_REN; r++) ren_ids[r] = r + 100;
+    int ren_ids[REN_TOTAL];
+    for (int r = 0; r < REN_TOTAL; r++) ren_ids[r] = r + 100;
 
     // creating identifiers for the elves
-    int elf_ids[COUNT_ELF];
-    for (int e = 0; e < COUNT_ELF; e++) elf_ids[e] = e;
+    int elf_ids[ELF_TOTAL];
+    for (int e = 0; e < ELF_TOTAL; e++) elf_ids[e] = e;
 
     // spawning all threads
     pthread_create(&snt, NULL, santa, NULL);
-    for (int r = 0; r < COUNT_REN; r++) pthread_create(&reindeer[r], NULL, reindeer, &ren_ids[r]);
-    for (int e = 0; e < COUNT_ELF; e++) pthread_create(&elves[e], NULL, elf, &elf_ids[e]);
+    for (int r = 0; r < REN_TOTAL; r++) pthread_create(&reindeer[r], NULL, reindeer, &ren_ids[r]);
+    for (int e = 0; e < ELF_TOTAL; e++) pthread_create(&elves[e], NULL, elf, &elf_ids[e]);
 
     // waiting for the threads to finish
     pthread_join(snt, NULL);
-    for (int r = 0; r < COUNT_REN; r++) pthread_join(reindeer[r], NULL);
-    for (int e = 0; e < COUNT_ELF; e++) pthread_join(elves[e], NULL);
+    for (int r = 0; r < REN_TOTAL; r++) pthread_join(reindeer[r], NULL);
+    for (int e = 0; e < ELF_TOTAL; e++) pthread_join(elves[e], NULL);
 
     return 0;
 }
