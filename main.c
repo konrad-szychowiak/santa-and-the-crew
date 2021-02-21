@@ -8,7 +8,7 @@
 #define ELF_TOTAL 10
 
 // minimal numbers that will make santa wake up
-#define REN_WAIT_MIN 9
+#define REN_WAIT_MIN REN_TOTAL
 #define ELF_WAIT_MIN 3
 
 // randomised sleep generation boundaries
@@ -159,27 +159,27 @@ int main(void) {
     srand(getpid());
 
     // initialising required threads
-    Thread snt;
-    Thread elves[ELF_TOTAL];
-    Thread reindeer[REN_TOTAL];
+    Thread santa_thread;
+    Thread elf_thread[ELF_TOTAL];
+    Thread reindeer_thread[REN_TOTAL];
 
-    // creating identifiers for the reindeer
+    // creating identifiers for the reindeer_thread
     int ren_ids[REN_TOTAL];
     for (int r = 0; r < REN_TOTAL; r++) ren_ids[r] = r + 100;
 
-    // creating identifiers for the elves
+    // creating identifiers for the elf_thread
     int elf_ids[ELF_TOTAL];
     for (int e = 0; e < ELF_TOTAL; e++) elf_ids[e] = e;
 
     // spawning all threads
-    pthread_create(&snt, NULL, santa, NULL);
-    for (int r = 0; r < REN_TOTAL; r++) pthread_create(&reindeer[r], NULL, reindeer, &ren_ids[r]);
-    for (int e = 0; e < ELF_TOTAL; e++) pthread_create(&elves[e], NULL, elf, &elf_ids[e]);
+    pthread_create(&santa_thread, NULL, santa, NULL);
+    for (int r = 0; r < REN_TOTAL; r++) pthread_create(&reindeer_thread[r], NULL, reindeer, &ren_ids[r]);
+    for (int e = 0; e < ELF_TOTAL; e++) pthread_create(&elf_thread[e], NULL, elf, &elf_ids[e]);
 
     // waiting for the threads to finish
-    pthread_join(snt, NULL);
-    for (int r = 0; r < REN_TOTAL; r++) pthread_join(reindeer[r], NULL);
-    for (int e = 0; e < ELF_TOTAL; e++) pthread_join(elves[e], NULL);
+    pthread_join(santa_thread, NULL);
+    for (int r = 0; r < REN_TOTAL; r++) pthread_join(reindeer_thread[r], NULL);
+    for (int e = 0; e < ELF_TOTAL; e++) pthread_join(elf_thread[e], NULL);
 
     return 0;
 }
