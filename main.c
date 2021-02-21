@@ -1,4 +1,3 @@
-#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,136 +12,170 @@
 #define WAIT_TIME_MIN 1
 #define WAIT_TIME_MAX 5
 
-#define lock pthread_mutex_lock
-#define unlock pthread_mutex_unlock
+// aliases to make using mutexes easier
+#define lock(sem) pthread_mutex_lock(&sem)
+#define unlock(sem) pthread_mutex_unlock(&sem)
 
+// aliases to make using conditional variables easier
 #define wait pthread_cond_wait
 #define signal pthread_cond_signal
 #define broadcast pthread_cond_broadcast
 
+// more readable type names for pthread constructs
 typedef pthread_cond_t Cond;
 typedef pthread_mutex_t Mutex;
+typedef pthread_t Thread;
 
-// waiting rooms
-int waiting_rens = 0;
+// WAITING ROOMS
+Mutex access_reindeer = PTHREAD_MUTEX_INITIALIZER;
+int waiting_reindeer = 0;
+
+Mutex access_elves = PTHREAD_MUTEX_INITIALIZER;
 int waiting_elves = 0;
 
-// PILLOWS control sleep fo the participants
-Mutex pillow_controller_rens = PTHREAD_MUTEX_INITIALIZER;
-Cond pillow_rens = PTHREAD_COND_INITIALIZER;
+// pairs of mutexes and conditional variables
+// that control sleep/waiting of the participating threads
+Mutex wait_access_reindeer = PTHREAD_MUTEX_INITIALIZER;
+Cond wait_control_reindeer = PTHREAD_COND_INITIALIZER;
 
-Mutex pillow_controller_elves = PTHREAD_MUTEX_INITIALIZER;
-Cond pillow_elves = PTHREAD_COND_INITIALIZER;
+Mutex wait_access_elves = PTHREAD_MUTEX_INITIALIZER;
+Cond wait_control_elves = PTHREAD_COND_INITIALIZER;
 
-Mutex pillow_controller_santa = PTHREAD_MUTEX_INITIALIZER;
-Cond pillow_santa = PTHREAD_COND_INITIALIZER;
+Mutex sleep_access_santa = PTHREAD_MUTEX_INITIALIZER;
+Cond sleep_control_santa = PTHREAD_COND_INITIALIZER;
 
-// switches
-Mutex access_rens = PTHREAD_MUTEX_INITIALIZER;
-Mutex master_access_rens = PTHREAD_MUTEX_INITIALIZER;
-Mutex access_elves = PTHREAD_MUTEX_INITIALIZER;
-Mutex master_access_elves = PTHREAD_MUTEX_INITIALIZER;
-
-
+/**
+ * Make a thread sleep for a randomised time.
+ * Boundaries of the randomisation can be set in defines.
+ * @param id identifier of the caller, used to log output/debugging info.
+ */
 void randomised_sleep(int id) {
     int time = rand() % (WAIT_TIME_MAX - WAIT_TIME_MIN + 1) + WAIT_TIME_MIN;
-    printf("\t[%3d] sleeps for %u sec\n", id, time);
+    printf("[%3d] sleeps for %u sec\n", id, time);
     sleep(time);
 }
 
-
+/**
+ * Santa sleeps until he's called by his reindeer or elves (inclusive or).
+ * When he wakes up he attends to his stuff prioritising the reindeer.
+ */
 _Noreturn void *santa(void *arg) {
     while (1) {
-        printf("!\tmikołaj zasypia\n");
-        lock(&pillow_controller_santa);
-        wait(&pillow_santa, &pillow_controller_santa);
-        unlock(&pillow_controller_santa);
-        printf("!\tmikołaj obudzony\n");
+        printf("! mikołaj zasypia\n");
+        lock(sleep_access_santa);
+        // wait until reindeer or elves wake santa up
+        wait(&sleep_control_santa, &sleep_access_santa);
+        unlock(sleep_access_santa);
+        printf("! mikołaj obudzony\n");
 
-        if (waiting_rens == WAIT_REN_MIN) {
+        // attend to the reindeer first
+        // even if they are not the original wake-up-ers
+        if (waiting_reindeer == WAIT_REN_MIN) {
             printf("< Obsługa reniferów\n");
-            sleep(5);
-            waiting_rens = 0;
-            broadcast(&pillow_rens);
-            // unlock(&pillow_controller_rens);
+            waiting_reindeer = 0;
+            // let the attended reindeer scatter
+            broadcast(&wait_control_reindeer);
             printf("> Zwolnienie reniferów\n");
         }
 
+        // attend to the elves
         if (waiting_elves >= WAIT_ELF_MIN) {
-            lock(&access_elves);
+            // prevent more elves from joining the waiting crew
+            // they will have to wait fot a new group to assemble before being served by the santa
+            lock(access_elves);
             printf("< Obsługa elfów\n");
             waiting_elves = 0;
-            broadcast(&pillow_elves);
-            // unlock(&pillow_controller_elves);
+            // let the currently attended elves scatter
+            broadcast(&wait_control_elves);
             printf("> Zwolnienie elfów\n");
-            unlock(&access_elves);
+            unlock(access_elves);
         }
     }
 }
 
-
-_Noreturn void *reindeer(int *id) {
+/**
+ * All the reindeer must gather before waking up santa.
+ * After some time of being occupied by reindeer matters they enter their waiting room
+ * and wait until the last one wakes up santa to attend to them.
+ * @param id identifier of the reindeer
+ */
+_Noreturn void *reindeer(const int *id) {
     while (1) {
         randomised_sleep(*id);
-        lock(&access_rens);
-        waiting_rens++;
-        printf("\t[%3d] waits for santa: %u total\n", *id, waiting_rens);
-        if (waiting_rens == WAIT_REN_MIN) {
-            signal(&pillow_santa);
-            unlock(&pillow_controller_santa);
-            printf("!\t[%3d] waking santa\n", *id);
-        }
-        unlock(&access_rens);
+        lock(access_reindeer);
+        waiting_reindeer++;
+        printf("\t[%3d] waits for santa: %u total\n", *id, waiting_reindeer);
 
-        lock(&pillow_controller_rens);
+        // if this reindeer is the last one required to wake up santa it will wake him up,
+        // but wait with all the others to be released by santa nonetheless
+        if (waiting_reindeer == WAIT_REN_MIN) {
+            signal(&sleep_control_santa);
+            unlock(sleep_access_santa);
+            printf("!\t[%3d] waking up santa\n", *id);
+        }
+        unlock(access_reindeer);
+
+        lock(wait_access_reindeer);
+
         printf("\t[%3d] goes to sleep\n", *id);
-        wait(&pillow_rens, &pillow_controller_rens);
-        unlock(&pillow_controller_rens);
+        wait(&wait_control_reindeer, &wait_access_reindeer);
+        unlock(wait_access_reindeer);
     }
 }
 
-
-_Noreturn void *elf(int *id) {
+/**
+ * Elves work until they stumble on a problem requiring santa's attention.
+ * if they do, they gather in their own waiting room till at least WAIT_ELF_MIN of them are there.
+ * If an elf enters the waiting room and notices that there is enough of them (including the elf)
+ * to wake up santa, he will do it.
+ * Thus, it is possible that there will be more elves waiting than the minimal number.
+ * @param id identifier of the elf.
+ */
+_Noreturn void *elf(const int *id) {
     while (1) {
         randomised_sleep(*id);
-        printf("\t[%3d] wakes up\n", *id);
-        lock(&access_elves);
+        lock(access_elves);
         waiting_elves++;
         printf("Waiting elves: %u\n", waiting_elves);
 
         if (waiting_elves >= WAIT_ELF_MIN) {
-            signal(&pillow_santa);
-            unlock(&pillow_controller_santa);
+            signal(&sleep_control_santa);
+            unlock(sleep_access_santa);
             printf("!\t%d\twaking santa\n", *id);
         }
-        unlock(&access_elves);
+        unlock(access_elves);
 
-        lock(&pillow_controller_elves);
+        lock(wait_access_elves);
         printf("\t%d\tgo to sleep\n", *id);
-        wait(&pillow_elves, &pillow_controller_elves);
-        unlock(&pillow_controller_elves);
+        wait(&wait_control_elves, &wait_access_elves);
+        unlock(wait_access_elves);
     }
 }
 
 int main(void) {
-    printf("hello, world\n");
-    pthread_t snt;
-    pthread_t rens[COUNT_REN];
-    pthread_t elves[COUNT_ELF];
+    srand(getpid());
 
+    // initialising required threads
+    Thread snt;
+    Thread elves[COUNT_ELF];
+    Thread reindeer[COUNT_REN];
+
+    // creating identifiers for the reindeer
     int ren_ids[COUNT_REN];
     for (int r = 0; r < COUNT_REN; r++) ren_ids[r] = r + 100;
 
+    // creating identifiers for the elves
     int elf_ids[COUNT_ELF];
     for (int e = 0; e < COUNT_ELF; e++) elf_ids[e] = e;
 
-    printf("initialising...\n");
+    // spawning all threads
     pthread_create(&snt, NULL, santa, NULL);
-    for (int r = 0; r < COUNT_REN; r++) pthread_create(&rens[r], NULL, reindeer, &ren_ids[r]);
+    for (int r = 0; r < COUNT_REN; r++) pthread_create(&reindeer[r], NULL, reindeer, &ren_ids[r]);
     for (int e = 0; e < COUNT_ELF; e++) pthread_create(&elves[e], NULL, elf, &elf_ids[e]);
 
+    // waiting for the threads to finish
     pthread_join(snt, NULL);
-    for (int r = 0; r < COUNT_REN; r++) pthread_join(rens[r], NULL);
+    for (int r = 0; r < COUNT_REN; r++) pthread_join(reindeer[r], NULL);
     for (int e = 0; e < COUNT_ELF; e++) pthread_join(elves[e], NULL);
 
     return 0;
