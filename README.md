@@ -1,6 +1,6 @@
 # Święty Mikołaj
 
-Konrad Szychowiak 144564
+Konrad Szychowiak
 
 ## Opis zadania
 
